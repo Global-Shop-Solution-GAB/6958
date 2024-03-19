@@ -1,0 +1,253 @@
+﻿Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+v.Global.sError.Declare(String)
+v.Global.bExcelFlag.Declare(Boolean)
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Author: Arturo Almaguer
+'Date: 11/01/22
+'Customer: Sterking Process Eng, quote number 13783
+'This is a modification to a script developed for this customer, but script wasn't part of an ARC ID project.
+'This script is launched off a custom menu item under Estimating & Routing > Transactions > Excel to Router Upload [6958]
+
+F.Intrinsic.Control.Try
+
+	V.Local.sError.Declare(String)
+	V.Local.sRet.Declare(String)
+	V.Local.sHeaderRow.Declare(String)
+	V.Local.i.Declare(Long)
+	V.Local.sRow.Declare(String)
+	V.Local.sRowSplit.Declare(String)
+	V.Local.iRows.Declare(Long)
+	V.Local.sTempRouter.Declare(String)
+	V.Local.sFinalRouter.Declare(String)
+	V.Local.sSQL.Declare(String)
+	V.Local.iRet.Declare(Long)
+	V.Local.icount.Declare(Long)
+	V.Local.sFile.Declare(String)
+	V.Local.sDir.Declare(String)
+	V.Local.sFolder.Declare(String)
+	
+	'Setting new variables
+	V.Local.iReturn.Declare(Long)
+	V.Local.sFilePath.Declare(String)
+	V.Local.sRouter.Declare(String)
+	V.Local.sMessage.Declare(String)
+	V.Local.iCounter.Declare(Long)
+	V.Local.sFileName.Declare(String)
+	V.Local.bFlagFile.Declare(Boolean)
+	
+	'Displaying msgbox to validate if customer wants to process a single file or all files within folder
+	F.Intrinsic.UI.Msgbox("Multiple files?", "Files Validation", V.Enum.MsgBoxStyle!YesNo, V.Local.iReturn)
+	
+	'Open file form to allow user to select single file or a file within a folder
+	F.Intrinsic.UI.ShowOpenFileDialog("", "*.xls", "", V.Local.sDir)
+	
+	F.Intrinsic.Control.If(V.Local.sDir.IsNotCancel)
+	
+		F.Intrinsic.Control.If(V.Local.iReturn, =, 6)
+			
+			'Getting all files within selected file's folder
+			F.Intrinsic.File.GetPathFromFQN(V.Local.sDir, V.Local.sDir)
+			F.Intrinsic.String.Build("{0}\",V.Local.sDir,V.Local.sFolder)
+			F.Intrinsic.File.GetFileList(V.Local.sFolder, "", V.Local.sFolder)
+			F.Intrinsic.String.Split(V.Local.sFolder,":",V.Local.sFolder)
+		
+		f.Intrinsic.Control.Else
+			
+			'Single file was selected, good to go
+			F.Intrinsic.String.Build("{0}",V.Local.sDir,V.Local.sFolder)
+			
+		F.Intrinsic.Control.EndIf
+		
+		'Displaying loading screen 
+		F.Intrinsic.UI.InvokeWaitDialog("Processing Routers Upload...", "GCG 6958 - Excel to Router Upload")
+		
+		'Manually creating dt to be filled in later
+		F.Data.DataTable.Create("dtRouterPL", True)
+		F.Data.DataTable.AddColumn("dtRouterPL", "ROUTER", "String")
+		F.Data.DataTable.AddColumn("dtRouterPL", "PL", "String")
+		
+		'Looping through files. This whole for loop was developed by someone else. Only added the msgbox check validation, everything else is exactly the same.
+		F.ODBC.Connection!Conx.OpenCompanyConnection
+		F.Intrinsic.Control.For(V.Local.iCount,V.Local.sFolder.LBound,V.Local.sFolder.UBound,1)
+			F.Intrinsic.String.Split(V.Local.sFolder(v.Local.icount),".",V.Local.sFile)
+			V.Local.iRet.Set(V.Local.sFile.UBound)
+			
+			'Adding this check to not process BOM spreadsheets within selected folder
+			V.Local.sFileName.Set(V.Local.sFile(0).Trim)
+			F.Intrinsic.String.IsInString(V.Local.sFileName, "BOM", True, V.Local.bFlagFile)
+			F.Intrinsic.Control.If(V.Local.bFlagFile,=,False)
+				'F.Intrinsic.Control.If(V.Local.sFile(0).Trim,!=,"","AND",V.Local.sFile(v.Local.iRet),=,"xlsm")
+				F.Intrinsic.Control.If(V.Local.sFile(0).Trim,!=,"")
+					
+					F.Intrinsic.Control.If(V.Local.iReturn, =, 6)
+						F.Intrinsic.String.Build("{0}\{1}",V.Local.sDir,V.Local.sFolder(v.Local.icount),V.Local.sFolder(v.Local.icount))
+					F.Intrinsic.Control.EndIf
+					
+					Function.Automation.MSExcel.CreateAppObject("EXCEL")
+					Function.Automation.MSExcel.OpenWorkbook("EXCEL","BOOK",V.Local.sFolder(v.Local.icount).Trim)
+					Function.Automation.MSExcel.OpenWorksheet("BOOK","SHEET",13)
+					V.Global.bExcelFlag.Set(True)
+					Function.Automation.MSExcel.ReadRow("SHEET",4,2,8,V.Local.sHeaderRow)
+					Function.Intrinsic.String.Split(V.Local.sHeaderRow,"*!*",V.Local.sHeaderRow)
+					Function.Intrinsic.String.Concat("SELECT * FROM V_ROUTER_HEADER WHERE ROUTER = '",V.local.sHeaderRow(0),"'",V.Local.sSQL)
+					Function.ODBC.Connection!Conx.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+					Function.Intrinsic.Control.If(V.ODBC.Conx!rst.EOF,=,False)
+						F.ODBC.conx!rst.Close
+						
+						F.Intrinsic.String.Build("Router '{0}' Already Exists in Global Shop. Do you want to delete and rebuild?",V.local.sHeaderRow(0),V.Local.sMessage)
+						F.Intrinsic.UI.Msgbox(V.Local.sMessage,"Router Already Exists",4,V.Local.iRet)
+						F.Intrinsic.Control.if(V.Local.iRet,=,6)
+							F.Intrinsic.String.Concat("DELETE FROM ROUTER_HEADER WHERE ROUTER = '",V.Local.sHeaderRow(0),"'",V.Local.sSQL)
+							F.ODBC.Connection!Conx.Execute(V.Local.sSQL)
+							F.Intrinsic.String.Concat("DELETE FROM ROUTER_LINE WHERE ROUTER ='",V.Local.sHeaderRow(0),"'",V.Local.sSQL)
+							F.ODBC.Connection!Conx.Execute(V.Local.sSQL)
+						F.Intrinsic.CONTROL.Else
+							
+							'Customer requested to add the ability to jump to next file if a 'No' was selected for a previous file.
+							'Previous process terminated the whole process, now it will continue with remaining files.
+							F.Automation.MSExcel.DestroyAllObjects("EXCEL","BOOK","SHEET")
+							V.Global.bExcelFlag.Set(False)
+							F.Intrinsic.Control.Next(V.Local.icount)
+							
+						Function.Intrinsic.Control.EndIf
+					Function.Intrinsic.Control.Else
+						F.ODBC.conx!rst.Close
+					Function.Intrinsic.Control.EndIf
+					
+					Function.Intrinsic.String.RPad(V.Local.sHeaderRow(0)," ",20,V.Local.sHeaderRow(0))
+					Function.Intrinsic.String.RPad(V.Local.sHeaderRow(2)," ",30,V.Local.sHeaderRow(2))
+					
+					Function.Automation.MSExcel.RowCount("SHEET",V.Local.iRows)
+					F.Intrinsic.Control.For(V.Local.i,14,V.Local.iRows,1)
+						Function.Automation.MSExcel.ReadRow("SHEET",V.Local.i,2,15,V.Local.sRow)
+						Function.Intrinsic.String.Split(V.Local.sRow,"*!*",V.Local.sRowSplit)
+						Function.Intrinsic.String.LPad(V.Local.sRowSplit(0),"0",6,V.Local.sRowSplit(0))
+						Function.Intrinsic.String.Concat(V.Local.sHeaderRow(0),V.Local.sHeaderRow(2),V.Local.sRowSPlit(0).trim,V.Local.sRowSplit(1).trim,V.Local.sTempRouter)
+						Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",57,V.Local.sTempRouter)
+						Function.Intrinsic.String.Format(V.Local.sRowSplit(3),"###########.0000",V.Local.sRowSplit(3))
+						Function.Intrinsic.String.Format(V.Local.sRowSplit(4),"###########.0000",V.Local.sRowSPlit(4))
+						Function.Intrinsic.String.Format(V.Local.sRowSplit(6),"###########.0000",V.Local.sRowSplit(6))
+						Function.Intrinsic.String.LPad(V.Local.sRowSplit(3),"0",16,V.Local.sRowSplit(3))
+						Function.Intrinsic.String.LPad(V.Local.sRowSplit(4),"0",16,V.Local.sRowSplit(4))
+						Function.Intrinsic.String.LPad(V.Local.sRowSplit(6),"0",16,V.Local.sRowSplit(6))
+						Function.Intrinsic.Control.If(V.Local.sRowSplit(1).trim,<>,"L")
+							Function.Intrinsic.String.Concat(V.Local.sTempRouter,V.Local.sRowSplit(2).Trim,V.Local.sTempRouter)
+							Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",81,V.Local.sTempRouter)
+						Function.Intrinsic.Control.Else
+							Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",77,V.Local.sTempRouter)
+							Function.Intrinsic.String.Concat(V.Local.sTempRouter,V.Local.sRowSplit(2).trim,V.Local.sTempRouter)
+							Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",81,V.Local.sTempRouter)
+						Function.Intrinsic.Control.EndIf
+						Function.Intrinsic.String.RPad(V.Local.sRowSPlit(7)," ",30,V.Local.sRowSplit(7))
+						Function.Intrinsic.String.Concat(V.Local.sTempRouter,V.Local.sRowSPlit(7),V.Local.sRowSplit(3),V.Local.sRowSplit(4),V.Local.sHeaderRow(3),V.Local.sTempRouter)
+						Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",155,V.Local.sTempRouter)
+						Function.Intrinsic.String.RPad(V.Local.sRowSPlit(9)," ",6,V.Local.sRowSplit(9))
+						Function.Intrinsic.String.Concat(V.Local.sTempRouter,V.Local.sRowSplit(9),V.Local.sRowSPlit(6),V.Local.sRowSPlit(5),V.Local.sTempRouter)
+						Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",392,V.Local.sTempRouter)
+						Function.Intrinsic.String.Format(V.Local.sHeaderRow(4),"###########.0000",V.LOcal.sHeaderRow(4))
+						F.Intrinsic.String.Lpad(V.Local.sHeaderRow(4),"0",16,V.Local.sHeaderRow(4))
+						Function.Intrinsic.String.Concat(V.Local.sTempRouter,V.Local.sHeaderRow(4),V.Local.sTempRouter)
+						Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",1061,V.Local.sTempRouter)
+						Function.Intrinsic.String.Concat(V.Local.sTempRouter,V.Local.sRowSPlit(12),V.Local.sTempRouter)
+						Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",1069,V.Local.sTempRouter)
+						Function.Intrinsic.String.Concat(V.Local.sTempRouter,V.Local.sRowSplit(13),V.Local.sTempRouter)
+						Function.Intrinsic.String.RPad(V.Local.sTempRouter," ",1089,V.Local.sTempRouter)
+						Function.Intrinsic.Control.If(V.Local.sFinalRouter,=,"")
+							V.Local.sFinalRouter.set(V.Local.sTempRouter)
+						Function.Intrinsic.Control.Else
+							Function.Intrinsic.String.Concat(V.Local.sFinalRouter,V.Ambient.NewLine,V.Local.sTempRouter,V.Local.sFinalRouter)
+						Function.Intrinsic.Control.EndIf
+					Function.Intrinsic.Control.Next(V.Local.i)
+					
+					'Destroy All Obj added 062215
+					F.Automation.MSExcel.DestroyAllObjects("EXCEL","BOOK","SHEET")
+					V.Global.bExcelFlag.Set(False)
+					
+					F.Intrinsic.Control.If(V.Local.sFinalRouter,<>,"")
+						Function.Intrinsic.String.Concat(V.Caller.FilesDir,"\ROUTERHD.txt",V.Local.sFile)
+						Function.Intrinsic.File.String2File(V.Local.sFile,V.Local.sFinalRouter)
+						F.Global.General.CallWrapperSync(50,"UPLRTRH/A/X")
+						F.Data.DataTable.AddRow("dtRouterPL", "ROUTER", V.Local.sHeaderRow(0), "PL", V.Local.sHeaderRow(1))
+					Function.Intrinsic.Control.EndIf
+			
+					'Updating Router Complete field based on the spreadsheet.
+					V.Local.sRouter.Set(V.Local.sHeaderRow(0))
+					F.Intrinsic.Control.If(V.Local.sHeaderRow(6), =, "Y")
+						F.Intrinsic.String.Build("update ROUTER_SUPP_HDR set COMPLETE = '1' where RTR_NUM = '{0}' and TYPE = 'H';", V.Local.sRouter.RTrim, V.Local.sSQL)
+						F.ODBC.Connection!Conx.Execute(V.Local.sSQL)
+					F.Intrinsic.Control.EndIf
+					'''''''''''''''''''''''''''''''''''''''''''''''''''''''
+					
+				Function.Intrinsic.Control.EndIf
+			Function.Intrinsic.Control.EndIf
+		
+		F.Intrinsic.Control.Next(V.Local.icount)
+		
+		'Updating Product Line field based on the spreadsheet.
+		F.Intrinsic.Control.For(V.Local.iCounter, 0, V.DataTable.dtRouterPL.RowCount--, 1) 
+			F.Intrinsic.String.Build("update ROUTER_HEADER set PROD_LINE = '{1}' where ROUTER = '{0}' and ROUTER_TYPE = 'H';", V.DataTable.dtRouterPL(V.Local.iCounter).ROUTER!FieldValTrim, V.DataTable.dtRouterPL(V.Local.iCounter).PL!FieldValTrim, V.Local.sSQL)
+			F.ODBC.Connection!Conx.Execute(V.Local.sSQL)
+		F.Intrinsic.Control.Next(V.Local.iCounter)
+		F.ODBC.Connection!Conx.Close
+		
+		'Closing loading screen
+		F.Intrinsic.UI.CloseWaitDialog
+		
+		'Displaying msgbox and unloading
+		F.Intrinsic.Control.If(V.Local.iReturn, =, 6)
+			Function.Intrinsic.UI.Msgbox("Routers were successfully uploaded.","Upload Complete")
+		Function.Intrinsic.Control.Else
+			F.Intrinsic.String.Build("Router '{0}' was successfully uploaded.",V.Local.sRouter, V.Local.sMessage)
+			Function.Intrinsic.UI.Msgbox(V.Local.sMessage,"Upload Complete")
+		F.Intrinsic.Control.EndIf
+		
+		F.Intrinsic.Control.CallSub("Unload")
+	
+	F.Intrinsic.Control.Else
+		
+		'Displaying error message
+		F.Intrinsic.UI.Msgbox("A file must be selected to process, ending program.", "ERROR")
+		F.Intrinsic.Control.CallSub("Unload")
+		
+	F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.Catch
+	
+	F.Intrinsic.Control.CallSub(CatchError, "Router", V.Local.sHeaderRow(0), "FilePath", V.Local.sFolder(v.Local.icount).Trim)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.CatchError.Start
+'Displaying error msg
+F.Intrinsic.String.Build("-Router {3}{0}-Error file {4}{0}-Error Occurred {1} with description {2}.", V.Ambient.Newline, V.Ambient.ErrorNumber, V.Ambient.ErrorDescription, V.Args.Router, V.Args.FilePath, V.Global.sError) 
+F.Intrinsic.UI.Msgbox(V.Global.sError, "ERROR")
+F.Intrinsic.Control.CallSub("Unload")
+Program.Sub.CatchError.End
+
+Program.Sub.Unload.Start				
+'Ensuring MS Excel is properly closed
+f.Intrinsic.Control.If(v.Global.bExcelFlag,=, True) 	
+	F.Automation.MSExcel.DestroyAllObjects("EXCEL","BOOK","SHEET")
+f.Intrinsic.Control.EndIf
+
+'Closes the connection if it is open
+f.Intrinsic.Control.If(v.ODBC.Conx.exists,=,"1") 	
+    f.ODBC.Connection!Conx.Close
+f.Intrinsic.Control.EndIf
+
+'Ending program
+F.Intrinsic.Control.End
+Program.Sub.Unload.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$SUPERVSR$}$9/19/2014 1:00:00 PM
+${$5$}$2.0.0.0$}$2
+${$6$}$apadilla$}$20221114094032349$}$Lag9STqBJOmNXSbd5+msRcBWPGz0aFqSmhrQDKqKcnXzhBLL9IxQityJE072BT+ZW16L4VPQTcjGSqceJv1SGg==
+Program.Sub.Comments.End
